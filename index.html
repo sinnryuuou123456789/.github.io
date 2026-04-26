@@ -113,6 +113,12 @@
     .file-list-header h3 { font-size: 15px; font-weight: 500; }
     .refresh-btn { background: transparent; border: 1px solid var(--border); color: var(--text-muted); padding: 6px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.2s; font-family: 'Noto Sans JP', sans-serif; }
     .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .search-box { width: 100%; padding: 10px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px; font-family: 'Noto Sans JP', sans-serif; margin-bottom: 16px; outline: none; transition: border-color 0.2s; }
+    .search-box:focus { border-color: var(--accent); }
+    .search-box::placeholder { color: var(--text-muted); }
+    .delete-btn { background: transparent; border: 1px solid rgba(248,113,113,0.4); color: var(--error); padding: 7px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: all 0.2s; font-family: 'Noto Sans JP', sans-serif; flex-shrink: 0; }
+    .delete-btn:hover { background: rgba(248,113,113,0.1); }
+    .file-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
     #file-list { display: flex; flex-direction: column; gap: 10px; }
 
@@ -217,6 +223,7 @@
         <h3>📁 Googleドライブのファイル</h3>
         <button class="refresh-btn" onclick="loadFileList()">🔄 更新</button>
       </div>
+      <input class="search-box" type="text" id="search-box" placeholder="🔍 ファイル名で検索..." oninput="filterFiles()">
       <div id="file-list"><div class="loading">読み込み中...</div></div>
     </div>
   </div>
@@ -226,7 +233,7 @@
 
 <script>
   const ALLOWED_EMAILS = ['giasu2009@yahoo.co.jp', 'gurann2018@gmail.com'];
-  const GAS_URL = 'https://script.google.com/macros/s/AKfycbyfPJ--BOSzh3scIFyCKpCk5CMLhDsV5oq7o451vOqpWiNwWXO-PtgEMJxSHfr9oOAQ/exec';
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbxGZsXf4kOXIgLfeDA9XRkz0ta9lUbe9IyS0O3v38NUAJqis-M1DycpIxxgBg3LGQ0CWQ/exec';
   const CLIENT_ID = '582228965013-oet1mnu4k21hg4b5er7lduraiht9jdp9.apps.googleusercontent.com';
 
   let currentUser = null;
@@ -297,6 +304,8 @@
     if (tab === 'files') loadFileList();
   }
 
+  let allFiles = [];
+
   async function loadFileList() {
     const list = document.getElementById('file-list');
     list.innerHTML = '<div class="loading">読み込み中...</div>';
@@ -307,23 +316,60 @@
         list.innerHTML = '<div class="empty-state"><span>📭</span>ファイルがありません</div>';
         return;
       }
-      list.innerHTML = '';
-      data.files.forEach(file => {
-        const date = new Date(file.date).toLocaleDateString('ja-JP');
-        const div = document.createElement('div');
-        div.className = 'drive-file-item';
-        div.innerHTML = `
-          <span class="drive-file-icon">${getFileIcon(file.name)}</span>
-          <div class="drive-file-info">
-            <div class="drive-file-name">${file.name}</div>
-            <div class="drive-file-date">${date}</div>
-          </div>
-          <a class="open-btn" href="https://drive.google.com/file/d/${file.id}/view" target="_blank">📥 開く</a>
-        `;
-        list.appendChild(div);
-      });
+      allFiles = data.files;
+      renderFiles(allFiles);
     } catch(e) {
-      list.innerHTML = '<div class="empty-state"><span>⚠️</span>読み込みに失敗しました<br><small>Google Apps Scriptの再デプロイが必要な場合があります</small></div>';
+      list.innerHTML = '<div class="empty-state"><span>⚠️</span>読み込みに失敗しました</div>';
+    }
+  }
+
+  function filterFiles() {
+    const q = document.getElementById('search-box').value.toLowerCase();
+    const filtered = allFiles.filter(f => f.name.toLowerCase().includes(q));
+    renderFiles(filtered);
+  }
+
+  function renderFiles(files) {
+    const list = document.getElementById('file-list');
+    if (files.length === 0) {
+      list.innerHTML = '<div class="empty-state"><span>🔍</span>見つかりません</div>';
+      return;
+    }
+    list.innerHTML = '';
+    files.forEach(file => {
+      const date = new Date(file.date).toLocaleDateString('ja-JP');
+      const div = document.createElement('div');
+      div.className = 'drive-file-item';
+      div.id = 'drive-file-' + file.id;
+      div.innerHTML = `
+        <span class="drive-file-icon">${getFileIcon(file.name)}</span>
+        <div class="drive-file-info">
+          <div class="drive-file-name">${file.name}</div>
+          <div class="drive-file-date">${date}</div>
+        </div>
+        <div class="file-actions">
+          <a class="open-btn" href="https://drive.google.com/uc?export=download&id=${file.id}" target="_blank">📥 DL</a>
+          <a class="open-btn" href="https://drive.google.com/file/d/${file.id}/view" target="_blank">👁 開く</a>
+          <button class="delete-btn" onclick="deleteFile('${file.id}', '${file.name}')">🗑 削除</button>
+        </div>
+      `;
+      list.appendChild(div);
+    });
+  }
+
+  async function deleteFile(fileId, fileName) {
+    if (!confirm('「' + fileName + '」を削除しますか？')) return;
+    try {
+      const res = await fetch(GAS_URL + '?action=delete&fileId=' + fileId);
+      const data = await res.json();
+      if (data.result === 'deleted') {
+        allFiles = allFiles.filter(f => f.id !== fileId);
+        const el = document.getElementById('drive-file-' + fileId);
+        if (el) el.remove();
+        showToast('削除しました！', 'success');
+      }
+    } catch(e) {
+      showToast('削除に失敗しました', 'error');
     }
   }
 
